@@ -27,7 +27,7 @@ class Torque2LinksArmRobot:
 
         # Time and state variables
         self.iter       = 0
-        self.theta      = [np.array([[0.0], [0.0]])]
+        self.theta      = [theta_init]
         self.theta_dot  = [theta_dot_init]
         self.theta_ddot = []
         self.tau        = []
@@ -63,8 +63,8 @@ class Torque2LinksArmRobot:
         self.G_const_a = m1*self.g*lc1 + m2*self.g*l1
         self.G_const_b = m2*self.g*lc2
         self.G = lambda theta: np.array([
-            [-self.G_const_a*np.cos(theta[0].item()) - self.G_const_b*np.cos(theta[0].item() + theta[1].item())],
-            [-self.G_const_b*np.cos(theta[0].item() + theta[1].item())]
+            [self.G_const_a*np.cos(theta[0].item()) + self.G_const_b*np.cos(theta[0].item() + theta[1].item())],
+            [self.G_const_b*np.cos(theta[0].item() + theta[1].item())]
         ])
 
         # Jacobian
