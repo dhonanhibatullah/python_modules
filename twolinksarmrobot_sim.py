@@ -8,18 +8,34 @@ class Torque2LinksArmRobot:
 
     def __init__(self, l1:float, l2:float, lc1:float, lc2:float, m1:float, m2:float, theta_init:np.ndarray, theta_dot_init:np.ndarray, timestep:float=0.0167, color:str='black') -> None:
         # Retrieve the constructor arguments
-        self.l1         = l1
-        self.l2         = l2
-        self.lc1        = lc1
-        self.lc2        = lc2
-        self.m1         = m1
-        self.m2         = m2
-        self.dt         = timestep
-        self.color      = color
-        self.max_length = l1 + l2
-        self.g          = 9.80665
-        self.b1         = 0.09
-        self.b2         = 0.07
+        self.l1             = l1
+        self.l2             = l2
+        self.lc1            = lc1
+        self.lc2            = lc2
+        self.m1             = m1
+        self.m2             = m2
+        self.dt             = timestep
+        self.color          = color
+        self.max_length     = l1 + l2
+        self.g              = 9.80665
+        self.b1             = 0.09
+        self.b2             = 0.07
+
+        # Trajectory to follow
+        self.KP_VAL             = 0.0
+        self.KI_VAL             = 0.0
+        self.KD_VAL             = 0.0
+        self.traj_exists        = False
+        self.traj_startpoint    = (0, 0)
+        self.traj_endpoint      = (0, 0)
+        self.last_x_e           = np.array([
+            [0.0],
+            [0.0]
+        ])
+        self.int_x_e            = np.array([
+            [0.0],
+            [0.0]
+        ])
 
         # Calculate the approximate inertial moment I1 and I2 based on lc1 and lc2
         self.I1 = (0.667)*(m1*lc1*l1)
@@ -85,6 +101,57 @@ class Torque2LinksArmRobot:
 
 
 
+    def setTrajectoryPoints(self, start_point:tuple, end_point:tuple, time:float) -> None:
+        self.traj_exists        = True
+        self.traj_startpoint    = start_point
+        self.traj_endpoint      = end_point
+        self.traj_time          = time
+
+
+
+    def calcControlLaw(self) -> np.ndarray:
+        if self.traj_exists:
+            time = self.iter*self.dt
+
+            # Trajectory
+            s   = (time/self.traj_time)**3.0
+            s2  = 3.0*(time**2.0)/(self.traj_time**3.0)
+            s3  = 6.0*(time)/(self.traj_time**3.0)
+            if s >= 1.0: s = 1.0
+
+            x_d       = np.array([
+                [self.traj_startpoint[0]*(1.0 - s) + self.traj_endpoint[0]*s],
+                [self.traj_startpoint[1]*(1.0 - s) + self.traj_endpoint[1]*s]
+            ])
+            x_dot_d   = np.array([
+                [(self.traj_endpoint[0] - self.traj_startpoint[0])*s2],
+                [(self.traj_endpoint[1] - self.traj_startpoint[1])*s2]
+            ])
+            x_ddot_d  = np.array([
+                [(self.traj_endpoint[0] - self.traj_startpoint[0])*s3],
+                [(self.traj_endpoint[1] - self.traj_startpoint[1])*s3]
+            ])
+
+            # Calculate errors
+            x_e             = x_d - self.fk_x2(self.theta[self.iter])
+            self.int_x_e    += (self.last_x_e + x_e)*(self.dt*2.0)
+            self.last_x_e   = x_e
+            theta_dot_e     = np.linalg.inv(self.J(self.theta[self.iter]))@x_dot_d - self.theta_dot[self.iter]
+
+            # Compute F
+            F = x_ddot_d + self.KP_VAL*x_e + self.KI_VAL*(self.int_x_e)
+
+            # Calculate the input
+            return self.M(self.theta[self.iter])@(np.transpose(self.J(self.theta[self.iter]))@F + self.KD_VAL*theta_dot_e) + self.C(self.theta[self.iter], self.theta_dot[self.iter])@self.theta_dot[self.iter] + self.G(self.theta[self.iter])
+
+        else:
+            return np.array([
+                [0.0],
+                [0.0]
+            ])
+
+
+
     def torqueInput(self, torques:np.ndarray) -> None:
         self.tau.append(torques)
 
@@ -145,6 +212,9 @@ class Torque2LinksArmRobot:
             self.ax.scatter([0.0, self.joint1_x[self.render_step]], [0.0, self.joint1_y[self.render_step]], s=200, c=self.color)
             self.ax.plot([self.joint1_x[self.render_step], self.joint2_x[self.render_step]], [self.joint1_y[self.render_step], self.joint2_y[self.render_step]], lw=6, c=self.color)
             self.ax.scatter([self.joint1_x[self.render_step], self.joint2_x[self.render_step]], [self.joint1_y[self.render_step], self.joint2_y[self.render_step]], s=200, c=self.color)
+
+            if self.traj_exists:
+                self.ax.plot([self.traj_startpoint[0], self.traj_endpoint[0]], [self.traj_startpoint[1], self.traj_endpoint[1]], lw=3, c='b')
 
             # Increment the render step
             self.render_step += 1
